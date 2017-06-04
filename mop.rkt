@@ -13,3 +13,36 @@
 ; PERFORMANCE OF THIS SOFTWARE.
 
 #lang racket
+
+; TODO: These are stubs...
+(define make-instance (make-keyword-procedure (lambda (kws kw-args . rest) #f)))
+(define canonicalize-direct-superclasses (make-keyword-procedure (lambda (kws kw-args . rest) (list #f))))
+(define canonicalize-direct-slots (make-keyword-procedure (lambda (kws kw-args . rest) (list #f))))
+(define canonicalize-defclass-options (make-keyword-procedure (lambda (kws kw-args . rest) (list #f))))
+
+(define class-table (make-hasheq))
+
+(define (find-class name #:error (error? #t))
+  (let ((class (hash-ref class-table name #f)))
+    (if (and (not class) error?)
+        (raise-user-error 'find-class "class does not exist: ~a" name)
+        class)))
+
+(define (add-class name class)
+  (hash-set! class-table name class))
+
+; TODO: Merge options with kws and kw-args?
+(define ensure-class
+  (make-keyword-procedure
+   (lambda (kws kw-args name options)
+     (if (find-class name #:error #f)
+      (raise-user-error 'ensure-class "cannot redefine class: ~a" name)
+      (let ((class (keyword-apply make-instance kws kw-args 'standard-class options #:name name)))
+        (add-class name class)
+        class)))))
+
+(define-syntax-rule (defclass name direct-superclasses direct-slots option ...)
+  (ensure-class name
+                #:direct-superclasses (canonicalize-direct-superclasses direct-superclasses)
+                #:direct-slots (canonicalize-direct-slots direct-slots)
+                (canonicalize-defclass-options option ...)))
