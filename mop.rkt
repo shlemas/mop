@@ -15,10 +15,17 @@
 #lang racket
 
 ; TODO: These are stubs...
-(define make-instance (make-keyword-procedure (lambda (kws kw-args . rest) #f)))
 (define canonicalize-direct-superclasses (make-keyword-procedure (lambda (kws kw-args . rest) (list #f))))
 (define canonicalize-direct-slots (make-keyword-procedure (lambda (kws kw-args . rest) (list #f))))
-(define canonicalize-defclass-options (make-keyword-procedure (lambda (kws kw-args . rest) (list #f))))
+
+; TODO: Handle #:metaclass and #:default-initargs options.
+(define (canonicalize-defclass-option option value)
+  (list option value))
+
+(define canonicalize-defclass-options
+  (make-keyword-procedure
+   (lambda (kws kw-args)
+     (flatten (map canonicalize-defclass-option kws kw-args)))))
 
 (define class-table (make-hasheq))
 
@@ -31,18 +38,25 @@
 (define (add-class name class)
   (hash-set! class-table name class))
 
-; TODO: Merge options with kws and kw-args?
-(define ensure-class
+; TODO: This is supposed to be a generic function.
+;       Also, make-instance needs to call the canonicalize-* methods:
+;         * canonicalize-direct-superclasses
+;         * canonicalize-direct-slots
+;         * canonicalize-defclass-options
+(define make-instance
   (make-keyword-procedure
-   (lambda (kws kw-args name options)
-     (if (find-class name #:error #f)
-      (raise-user-error 'ensure-class "cannot redefine class: ~a" name)
-      (let ((class (keyword-apply make-instance kws kw-args 'standard-class options #:name name)))
-        (add-class name class)
-        class)))))
+   (lambda (kws kw-args . rest)
+     #f)))
 
 (define-syntax-rule (defclass name direct-superclasses direct-slots option ...)
-  (ensure-class name
-                #:direct-superclasses (canonicalize-direct-superclasses direct-superclasses)
-                #:direct-slots (canonicalize-direct-slots direct-slots)
-                (canonicalize-defclass-options option ...)))
+  (if (find-class name #:error #f)
+      (raise-user-error 'defclass "cannot redefine class: ~a" name)
+      (let ((class (make-instance 'standard-class
+                                  #:name name
+                                  #:direct-superclasses direct-superclasses
+                                  #:direct-slots direct-slots
+                                  option ...)))
+        (add-class name class)
+        class)))
+
+(defclass 'hey '() '() #:beep 100 #:bop 200)
