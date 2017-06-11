@@ -38,25 +38,34 @@
 (define (add-class name class)
   (hash-set! class-table name class))
 
-; TODO: This is supposed to be a generic function.
-;       Also, make-instance needs to call the canonicalize-* methods:
+; This is a generic function in the book because it implements CLOS in CLOS.
+; For us, it will be a regular function.
+; TODO: make-instance will need to call the canonicalize-* methods:
 ;         * canonicalize-direct-superclasses
 ;         * canonicalize-direct-slots
 ;         * canonicalize-defclass-options
 (define make-instance
   (make-keyword-procedure
-   (lambda (kws kw-args . rest)
-     #f)))
+   (lambda (kws kw-args class . rest)
+     `(make-instance ,class ,@rest ,@(map cons kws kw-args)))))
+
+(define-syntax-rule (defgeneric function-name lambda-list)
+  (begin
+    (define function-name (make-instance 'standard-generic-function #:lambda-list lambda-list))
+    function-name))
 
 (define-syntax-rule (defclass name direct-superclasses direct-slots option ...)
-  (if (find-class name #:error #f)
-      (raise-user-error 'defclass "cannot redefine class: ~a" name)
+  (if (find-class 'name #:error #f)
+      (raise-user-error 'defclass "cannot redefine class: ~a" 'name)
       (let ((class (make-instance 'standard-class
-                                  #:name name
+                                  #:name 'name
                                   #:direct-superclasses direct-superclasses
                                   #:direct-slots direct-slots
                                   option ...)))
-        (add-class name class)
+        (add-class 'name class)
         class)))
 
-(defclass 'hey '() '() #:beep 100 #:bop 200)
+; Scratch...
+(defclass hey (list 'foo) (list 'bar) #:beep 100 #:bop 200)
+(defgeneric baz (list 1 2 3))
+baz
