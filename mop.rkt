@@ -49,9 +49,10 @@
    (lambda (kws kw-args class . rest)
      `(make-instance ,class ,@rest ,@(map cons kws kw-args)))))
 
-(define-syntax-rule (defgeneric function-name lambda-list)
+; TODO: How will canonicalize-defgeneric-options be handled?
+(define-syntax-rule (defgeneric function-name lambda-list option ...)
   (begin
-    (define function-name (make-instance 'standard-generic-function #:lambda-list lambda-list))
+    (define function-name (make-instance 'standard-generic-function #:lambda-list lambda-list option ...))
     function-name))
 
 (define-syntax-rule (defclass name direct-superclasses direct-slots option ...)
