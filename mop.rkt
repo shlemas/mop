@@ -14,59 +14,55 @@
 
 #lang racket
 
+(require syntax/parse/define)
+
 ; TODO: These are stubs...
-(define canonicalize-direct-superclasses (make-keyword-procedure (lambda (kws kw-args . rest) (list #f))))
-(define canonicalize-direct-slots (make-keyword-procedure (lambda (kws kw-args . rest) (list #f))))
+(define (canonicalize-direct-superclass superclass) superclass)
+(define (canonicalize-direct-slot slot) slot)
 
 ; TODO: Handle #:metaclass and #:default-initargs options.
-(define (canonicalize-defclass-option option value)
-  (list option value))
+(define (canonicalize-defclass-option option value) value)
 
-(define canonicalize-defclass-options
-  (make-keyword-procedure
-   (lambda (kws kw-args)
-     (flatten (map canonicalize-defclass-option kws kw-args)))))
-
+; UNUSED
 (define class-table (make-hasheq))
 
+; UNUSED
 (define (find-class name #:error (error? #t))
   (let ((class (hash-ref class-table name #f)))
     (if (and (not class) error?)
         (raise-user-error 'find-class "class does not exist: ~a" name)
         class)))
 
+; UNUSED
 (define (add-class name class)
   (hash-set! class-table name class))
 
 ; This is a generic function in the book because it implements CLOS in CLOS.
 ; For us, it will be a regular function.
-; TODO: make-instance will need to call the canonicalize-* methods:
-;         * canonicalize-direct-superclasses
-;         * canonicalize-direct-slots
-;         * canonicalize-defclass-options
-(define make-instance
-  (make-keyword-procedure
-   (lambda (kws kw-args class . rest)
-     `(make-instance ,class ,@rest ,@(map cons kws kw-args)))))
+(define (make-instance class . options)
+  `(make-instance ,class ,options))
 
-; TODO: How will canonicalize-defgeneric-options be handled?
-(define-syntax-rule (defgeneric function-name lambda-list option ...)
-  (begin
-    (define function-name (make-instance 'standard-generic-function #:lambda-list lambda-list option ...))
-    function-name))
+(define-simple-macro (defgeneric function-name lambda-list (~seq option-name option-value) ...)
+  (define function-name (make-instance 'standard-generic-function
+                                       (list '#:lambda-list 'lambda-list)
+                                       (list 'option-name option-value)
+                                       ...)))
 
-(define-syntax-rule (defclass name direct-superclasses direct-slots option ...)
-  (if (find-class 'name #:error #f)
-      (raise-user-error 'defclass "cannot redefine class: ~a" 'name)
-      (let ((class (make-instance 'standard-class
-                                  #:name 'name
-                                  #:direct-superclasses direct-superclasses
-                                  #:direct-slots direct-slots
-                                  option ...)))
-        (add-class 'name class)
-        class)))
+(define-simple-macro (defclass name (direct-superclass ...) (direct-slot ...) (~seq option-name option-value) ...)
+  (define name (make-instance 'standard-class
+                              (list '#:name 'name)
+                              (list '#:direct-superclasses (list (canonicalize-direct-superclass 'direct-superclass) ...))
+                              (list '#:direct-slots (list (canonicalize-direct-slot 'direct-slot) ...))
+                              (list 'option-name (canonicalize-defclass-option 'option-name option-value))
+                              ...)))
 
 ; Scratch...
-(defclass hey (list 'foo) (list 'bar) #:beep 100 #:bop 200)
-(defgeneric baz (list 1 2 3))
+(defclass hey (heyparent1 heyparent2)
+  (#:bar #:zing)
+  #:beep 100
+  #:bop 200)
+
+(defgeneric baz (arg1 arg2 arg3) #:initarg1 "blah")
+
+hey
 baz
