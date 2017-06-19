@@ -9,3 +9,7 @@
 *.rkt~
 *.rkt#*
 .#*.rkt
+
+*.lisp~
+*.lisp#*
+.#*.lisp
