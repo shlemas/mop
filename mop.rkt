@@ -16,12 +16,57 @@
 
 (require syntax/parse/define)
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Behavior/support layer.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 ; TODO: These are stubs...
 (define (canonicalize-direct-superclass superclass) superclass)
 (define (canonicalize-direct-slot slot) slot)
 
 ; TODO: Handle #:metaclass and #:default-initargs options.
 (define (canonicalize-defclass-option option value) value)
+
+(define (allocate-std-instance class slots)
+  (list (list '#:class class)
+        (list '#:slots slots)))
+
+(define (std-instance-class instance)
+  (cdr (assoc instance '#:class)))
+
+(define (std-instance-slots instance)
+  (cdr (assoc instance '#:slots)))
+
+(define (std-instance? object)
+  (if (std-instance-class object) #t #f))
+
+(define (allocate-slot-storage size initial-value)
+  (build-list size (lambda (ignored) initial-value)))
+
+(define (slot-contents slots location)
+  (list-ref slots location))
+
+(define secret-unbound-value (list "slot unbound"))
+
+;(define (class-slots class)
+;  (slot-value class '#:effective-slots))
+
+;(define (std-allocate-instance class)
+;  (allocate-std-instance
+;   class
+;   (allocate-slot-storage (class-slots class) secret-unbound-value)))
+
+;(define (allocate-instance class)
+;  (std-allocate-instance class))
+
+; This is a generic function in the book because it implements CLOS in CLOS.
+; For us, it will be a regular function.
+(define (make-instance class . options)
+  `(make-instance ,class ,options))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Glue layer.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ; UNUSED
 (define class-table (make-hasheq))
@@ -37,32 +82,47 @@
 (define (add-class name class)
   (hash-set! class-table name class))
 
-; This is a generic function in the book because it implements CLOS in CLOS.
-; For us, it will be a regular function.
-(define (make-instance class . options)
-  `(make-instance ,class ,options))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Macro-expansion layer.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define-simple-macro (defgeneric function-name lambda-list (~seq option-name option-value) ...)
   (define function-name (make-instance 'standard-generic-function
-                                       (list '#:lambda-list 'lambda-list)
-                                       (list 'option-name option-value)
+                                       (cons '#:lambda-list 'lambda-list)
+                                       (cons 'option-name option-value)
                                        ...)))
 
 (define-simple-macro (defclass name (direct-superclass ...) (direct-slot ...) (~seq option-name option-value) ...)
-  (define name (make-instance 'standard-class
-                              (list '#:name 'name)
-                              (list '#:direct-superclasses (list (canonicalize-direct-superclass 'direct-superclass) ...))
-                              (list '#:direct-slots (list (canonicalize-direct-slot 'direct-slot) ...))
-                              (list 'option-name (canonicalize-defclass-option 'option-name option-value))
+  (define name (make-instance 'name
+                              (cons '#:name 'name)
+                              (cons '#:direct-superclasses (list (canonicalize-direct-superclass 'direct-superclass) ...))
+                              (cons '#:direct-slots (list (canonicalize-direct-slot 'direct-slot) ...))
+                              (cons 'option-name (canonicalize-defclass-option 'option-name option-value))
                               ...)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Definitions.
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defclass standard-class ()
+  ((name #:initarg #:name
+         #:accessor class-name)
+   (direct-superclasses #:initarg #:direct-superclasses
+                        #:accessor class-direct-superclasses)
+   (direct-slots #:accessor class-direct-slots)
+   (class-precedence-list #:accessor class-precedence-list)
+   (effective-slots #:accessor class-slots)
+   (direct-subclasses #:initform ()
+                      #:accessor class-direct-subclasses)
+   (direct-methods #:initform ()
+                   #:accessor class-direct-methods)))
+; TODO
+;(defmethod initialize-instance #:after ((class standard-class) &key direct-superclasses direct-slots)
+;  (let ((supers (or (get '#:direct-superclasses options) standard-object)))
+;    (setf (class-direct-superclasses class) supers)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Scratch...
-(defclass hey (heyparent1 heyparent2)
-  (#:bar #:zing)
-  #:beep 100
-  #:bop 200)
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defgeneric baz (arg1 arg2 arg3) #:initarg1 "blah")
-
-hey
-baz
+standard-class
