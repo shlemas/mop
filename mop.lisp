@@ -97,14 +97,14 @@
   (case (car option)
     (:metaclass (list ':metaclass `(find-class ',(cadr option))))
     (:default-initargs (list ':direct-default-initargs
-                             `(list ,@(mapappend #'(lambda (x) x)
+                             `(list ,@(mop-mapappend #'(lambda (x) x)
                                                   (mapplist #'(lambda (key value)
                                                                 `(',key ,value))
                                                             (cdr option))))))
     (otherwise (list `',(car option) `',(cadr option)))))
 
 (defun mop-canonicalize-defclass-options (options)
-  (mapappend #'mop-canonicalize-defclass-option options))
+  (mop-mapappend #'mop-canonicalize-defclass-option options))
 
 ; Stub
 (defun mop-make-instance (class-name &rest all-keys)
