@@ -13,7 +13,7 @@
 ; PERFORMANCE OF THIS SOFTWARE.
 
 ;-------------------------------------------------------------------------------
-; Behavior/support/utility layer.
+; Utility
 ;-------------------------------------------------------------------------------
 
 (defmacro mop-push-on-end (value location)
@@ -27,7 +27,7 @@
         (setf (car (cdr x)) new-value)
         (return-from body new-value)))
     (mop-push-on-end key plist)
-    (mop-push-on-end new-value plit)
+    (mop-push-on-end new-value plist)
     new-value))
 
 (defun mop-mapappend (fun &rest args)
@@ -40,7 +40,15 @@
   (if (null x)
       ()
       (cons (funcall fun (car x) (cadr x))
-            (mapplist fun (cddr x)))))
+            (mop-mapplist fun (cddr x)))))
+
+; Stub
+(defun mop-make-instance (class-name &rest all-keys)
+  (list class-name all-keys))
+
+;-------------------------------------------------------------------------------
+; defclass
+;-------------------------------------------------------------------------------
 
 (let ((mop-class-table (make-hash-table :test #'eq)))
 
@@ -98,21 +106,13 @@
     (:metaclass (list ':metaclass `(find-class ',(cadr option))))
     (:default-initargs (list ':direct-default-initargs
                              `(list ,@(mop-mapappend #'(lambda (x) x)
-                                                  (mapplist #'(lambda (key value)
-                                                                `(',key ,value))
-                                                            (cdr option))))))
+                                                  (mop-mapplist #'(lambda (key value)
+                                                                    `(',key ,value))
+                                                                (cdr option))))))
     (otherwise (list `',(car option) `',(cadr option)))))
 
 (defun mop-canonicalize-defclass-options (options)
   (mop-mapappend #'mop-canonicalize-defclass-option options))
-
-; Stub
-(defun mop-make-instance (class-name &rest all-keys)
-  (list class-name all-keys))
-
-;-------------------------------------------------------------------------------
-; Glue layer.
-;-------------------------------------------------------------------------------
 
 (defun mop-ensure-class (name &rest all-keys)
   (if (mop-find-class name nil)
@@ -121,15 +121,114 @@
         (setf (mop-find-class name) class)
         class)))
 
-;-------------------------------------------------------------------------------
-; Macro-expansion layer.
-;-------------------------------------------------------------------------------
-
 (defmacro mop-defclass (name direct-superclasses direct-slots &rest options)
   `(mop-ensure-class ',name
      :direct-superclasses ,(mop-canonicalize-direct-superclasses direct-superclasses)
      :direct-slots ,(mop-canonicalize-direct-slots direct-slots)
      ,@(mop-canonicalize-defclass-options options)))
+
+;-------------------------------------------------------------------------------
+; defgeneric
+;-------------------------------------------------------------------------------
+
+(let ((mop-generic-function-table (make-hash-table :test #'equal)))
+
+  (defun mop-find-generic-function (symbol &optional (errorp t))
+    (let ((gf (gethash symbol mop-generic-function-table nil)))
+      (if (and (null gf) errorp)
+          (error "No generic function named ~S." symbol)
+          gf)))
+
+  (defun (setf mop-find-generic-function) (new-value symbol)
+    (setf (gethash symbol mop-generic-function-table) new-value))
+
+  (defun mop-forget-all-generic-functions ()
+    (clrhash mop-generic-function-table)
+    (values))
+
+)
+
+(defparameter mop-the-defclass-standard-method
+  '(defclass mop-standard-method ()
+     ((lambda-list :initarg :lambda-list)
+      (qualifiers :initarg :qualifiers)
+      (specializers :initarg :specializers)
+      (body :initarg :body)
+      (environment :initarg :environment)
+      (generic-function :initform nil)
+      (function))))
+
+(defvar mop-the-class-standard-method)
+
+(defun mop-method-lambda-list (method) (mop-slot-value method 'lambda-list))
+(defun (setf mop-method-lambda-list) (new-value method)
+  (setf (mop-slot-value method 'lambda-list) new-value))
+
+(defun mop-method-qualifiers (method) (mop-slot-value method 'qualifiers))
+(defun (setf mop-method-qualifiers) (new-value method)
+  (setf (mop-slot-value method 'qualifiers) new-value))
+
+(defun mop-method-specializers (method) (mop-slot-value method 'specializers))
+(defun (setf mop-method-specializers) (new-value method)
+  (setf (mop-slot-value method 'specializers) new-value))
+
+(defun mop-method-body (method) (mop-slot-value method 'body))
+(defun (setf mop-method-body) (new-value method)
+  (setf (mop-slot-value method 'body) new-value))
+
+(defun mop-method-environment (method) (mop-slot-value method 'environment))
+(defun (setf mop-method-environment) (new-value method)
+  (setf (mop-slot-value method 'environment) new-value))
+
+(defun mop-method-generic-function (method) (mop-slot-value method 'generic-function))
+(defun (setf mop-method-generic-function) (new-value method)
+  (setf (mop-slot-value method 'generic-function) new-value))
+
+(defun mop-method-function (method) (mop-slot-value method 'function))
+(defun (setf mop-method-function) (new-value method)
+  (setf (mop-slot-value method 'function) new-value))
+
+(defun mop-canonicalize-defgeneric-option (option)
+  (case (car option)
+    (:generic-function-class (list ':generic-function-class `(find-class ',(cadr option))))
+    (:method-class (list ':method-class `(find-class ',(cadr option))))
+    (otherwise (list `',(car option) `',(cadr option)))))
+
+(defun mop-canonicalize-defgeneric-options (options)
+  (mop-mapappend #'mop-canonicalize-defgeneric-option options))
+
+(defun mop-ensure-generic-function (function-name
+                                    &rest all-keys
+                                    &key (generic-function-class mop-the-class-standard-gf)
+                                         (method-class mop-the-class-standard-method)
+                                    &allow-other-keys)
+  (if (mop-find-generic-function function-name nil)
+      (mop-find-generic-function function-name)
+      (let ((gf (apply (if (eq generic-function-class mop-the-class-standard-gf)
+                           #'mop-make-instance-standard-generic-function
+                           #'mop-make-instance)
+                       generic-function-class
+                       :name function-name
+                       :method-class method-class
+                       all-keys)))
+        (setf (mop-find-generic-function function-name) gf)
+        gf)))
+
+(defun finalize-generic-function (gf)
+  (setf (mop-generic-function-discriminating-function gf)
+        (funcall (if (eq (mop-class-of gf) mop-the-class-standard-gf)
+                     #'mop-std-compute-discriminating-function
+                     #'mop-compute-discriminating-function)
+                 gf))
+  (setf (fdefinition (mop-generic-function-name gf))
+        (mop-generic-function-discriminating-function gf))
+  (clrhash (mop-classes-to-emf-table gf))
+  (values))
+
+(defmacro mop-defgeneric (function-name lambda-list &rest options)
+  `(mop-ensure-generic-function ',function-name
+                                :lambda-list ',lambda-list
+                                ,@(mop-canonicalize-defgeneric-options options)))
 
 ;-------------------------------------------------------------------------------
 ; Definitions.
