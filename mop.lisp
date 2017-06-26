@@ -42,6 +42,148 @@
       (cons (funcall fun (car x) (cadr x))
             (mop-mapplist fun (cddr x)))))
 
+(defstruct (mop-std-instance (:constructor mop-allocate-std-instance (class slots))
+                             (:predicate mop-std-instance-p)
+                             (:print-function mop-print-std-instance))
+  class
+  slots)
+
+(defun mop-print-std-instance (instance stream depth)
+  (declare (ignore depth))
+  (mop-print-object instance stream))
+
+(defparameter mop-secret-unbound-value (list "slot unbound)"))
+
+(defun mop-instance-slot-p (slot)
+  (eq (mop-slot-definition-allocation slot) ':instance))
+
+(defun mop-std-allocate-instance (class)
+  (mop-allocate-std-instance class
+                             (mop-allocate-slot-storage (count-if #'mop-instance-slot-p (mop-class-slots class))
+                                                        mop-secret-unbound-value)))
+
+(defun mop-allocate-slot-storage (size initial-value)
+  (make-array size :initial-element initial-value))
+
+(defvar mop-the-slots-of-standard-class)
+(defvar mop-the-class-standard-class)
+
+(defun mop-slot-location (class slot-name)
+  (if (and (eq slot-name 'effective-slots)
+           (eq class mop-std-the-class-standard-class))
+      (position 'effective-slots mop-the-slots-of-standard-class :key #'mop-slot-definition-name)
+      (let ((slot (find slot-name (mop-class-slots class) :key #'mop-slot-definition-name)))
+        (if (null slot)
+            (error "The slot ~S is missing from the class ~S." slot-name class)
+            (let ((pos (position slot (remove-if-not #'mop-instance-slot-p (mop-class-slots class)))))
+              (if (null pos)
+                  (error "The slot ~S is not an instance slot in the class ~S." slot-name class)
+                  pos))))))
+
+(defun mop-slot-contents (slots location)
+  (svref slots location))
+
+(defun (setf mop-slot-contents) (new-value slots location)
+  (setf (svref slots location) new-value))
+
+(defun mop-std-slot-value (instance slot-name)
+  (let* ((location (mop-slot-location (mop-class-of instance) slot-name))
+         (slots (mop-std-instance-slots instance))
+         (val (mop-slot-contents slots location)))
+    (if (eq mop-secret-unbound-value val)
+        (error "The slot ~S is unbound in the object ~S." slot-name instance)
+        val)))
+
+(defun mop-slot-value (object slot-name)
+  (if (eq (mop-class-of (mop-class-of object)) mop-the-class-standard-class)
+      (mop-std-slot-value object slot-name)
+      (mop-slot-value-using-class (mop-class-of object) object slot-name)))
+
+(defun (setf mop-std-slot-value) (new-value instance slot-name)
+  (let ((location (mop-slot-location (mop-class-of instance) slot-name))
+        (slots (mop-std-instance-slots instance)))
+    (setf (mop-slot-contents slots location) new-value)))
+
+(defun (setf mop-slot-value) (new-value object slot-name)
+  (if (eq (mop-class-of (mop-class-of object)) mop-the-class-standard-class)
+      (setf (mop-std-slot-value object slot-name) new-value)
+      (mop-setf-slot-value-using-class new-value (mop-class-of object) object slot-name)))
+
+(defun mop-std-slot-boundp (instance slot-name)
+  (let ((location (mop-std-location (mop-class-of instance) slot-name))
+        (slots (mop-std-instance-slots instance)))
+    (not (eq mop-secret-unbound-value (mop-slot-contents slots location)))))
+
+(defun mop-slot-boundp (object slot-name)
+  (if (eq (mop-class-of (mop-class-of object)) mop-the-class-standard-class)
+      (mop-std-slot-boundp object slot-name)
+      (mop-slot-boundp-using-class (mop-class-of object) object slot-name)))
+
+(defun mop-std-slot-makunbound (instance slot-name)
+  (let ((location (mop-slot-location (mop-class-of instance) slot-name))
+        (slots (mop-std-instance-slots instance)))
+    (setf (mop-slot-contents slots location) mop-secret-unbound-value))
+  instance)
+
+(defun mop-slot-makunbound (object slot-name)
+  (if (eq (mop-class-of (mop-class-of object)) mop-the-class-standard-class)
+      (mop-std-slot-makunbound object slot-name)
+      (mop-slot-makunbound-using-class (mop-class-of object) object slot-name)))
+
+(defun mop-std-slot-exists-p (instance slot-name)
+  (not (null (find slot-name (mop-class-slots (mop-class-of instance))
+                   :key #'mop-slot-definition-name))))
+
+(defun mop-slot-exists-p (object slot-name)
+  (if (eq (mop-class-of (mop-class-of object)) mop-the-class-standard-class)
+      (mop-std-slot-exists-p object slot-name)
+      (mop-slot-exists-p-using-class (mop-class-of object) object slot-name)))
+
+(defun mop-class-of (x)
+  (if (mop-std-instance-p x)
+      (mop-std-instance-class x)
+      (mop-built-in-class-of x)))
+
+(defun mop-built-in-class-of (x)
+  (typecase x
+    (null (mop-find-class 'null))
+    ((and symbol (not null)) (mop-find-class 'symbol))
+    ((complex *) (mop-find-class 'complex))
+    ((integer * *) (mop-find-class 'integer))
+    ((float * *) (mop-find-class 'float))
+    (cons (mop-find-class 'cons))
+    (character (mop-find-class 'character))
+    (hash-table (mop-find-class 'hash-table))
+    (package (mop-find-class 'package))
+    (pathname (mop-find-class 'pathname))
+    (readtable (mop-find-class 'readtable))
+    (stream (mop-find-class 'stream))
+    ((and number (not (or integer complex float))) (mop-find-class 'number))
+    ((string *) (mop-find-class 'string))
+    ((bit-vector *) (mop-find-class 'bit-vector))
+    ((and (vector * *) (not (or string vector))) (mop-find-class 'vector))
+    ((and (array * *) (not vector)) (mop-find-class 'array))
+    ((and sequence (not (or vector list))) (mop-find-class 'sequence))
+    (function (mop-find-class 'function))
+    (t (mop-find-class 't))))
+
+(defun mop-subclassp (c1 c2)
+  (not (null (find c2 (mop-class-precedence-list c1)))))
+
+(defun mop-sub-specializer-p (c1 c2 c-arg)
+  (let ((cpl (mop-class-precedence-list c-arg)))
+    (not (null (find c2 (cdr (member c1 cpl)))))))
+
+(defparameter mop-the-defclass-standard-class
+  '(mop-defclass mop-standard-class ()
+     ((name :initarg :name)
+      (direct-superclasses :initarg :direct-superclasses)
+      (direct-slots)
+      (class-precedence-list)
+      (effective-slots)
+      (direct-subclasses :initform ())
+      (direct-methods :initform ()))))
+
 ; Stub
 (defun mop-make-instance (class-name &rest all-keys)
   (list class-name all-keys))
