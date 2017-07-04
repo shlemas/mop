@@ -13,3 +13,5 @@
 *.lisp~
 *.lisp#*
 .#*.lisp
+
+.DS_Store
