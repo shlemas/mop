@@ -1159,6 +1159,7 @@
         (lambda-list (method-lambda-list method)))
     (compile-in-lexical-environment (method-environment method)
       `(lambda (args next-emfun)
+         (declare (ignorable next-emfun))
          (flet ((call-next-method (&rest cnm-args)
                   (if (null next-emfun)
                       (error "No next method for the~@

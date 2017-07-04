@@ -43,23 +43,6 @@
 (defmethod allocate-instance ((class standard-class))
   (std-allocate-instance class))
 
-(defgeneric make-instance (class &key))
-(defmethod make-instance ((class standard-class) &rest initargs)
-  (let ((instance (allocate-instance class)))
-    (apply #'initialize-instance instance initargs)
-    instance))
-(defmethod make-instance ((class symbol) &rest initargs)
-  (apply #'make-instance (find-class class) initargs))
-
-(defgeneric initialize-instance (instance &key))
-(defmethod initialize-instance ((instance standard-object) &rest initargs)
-  (apply #'shared-initialize instance t initargs))
-
-(defgeneric reinitialize-instance (instance &key))
-(defmethod reinitialize-instance
-           ((instance standard-object) &rest initargs)
-  (apply #'shared-initialize instance () initargs))
-
 (defgeneric shared-initialize (instance slot-names &key))
 (defmethod shared-initialize ((instance standard-object) 
                               slot-names &rest all-keys)
@@ -79,7 +62,34 @@
                      (funcall (slot-definition-initfunction slot))))))))
   instance)
 
+(defgeneric initialize-instance (instance &key))
+(defmethod initialize-instance ((instance standard-object) &rest initargs)
+  (apply #'shared-initialize instance t initargs))
+
+(defgeneric reinitialize-instance (instance &key))
+(defmethod reinitialize-instance
+           ((instance standard-object) &rest initargs)
+  (apply #'shared-initialize instance () initargs))
+
+(defgeneric make-instance (class &key))
+(defmethod make-instance ((class standard-class) &rest initargs)
+  (let ((instance (allocate-instance class)))
+    (apply #'initialize-instance instance initargs)
+    instance))
+(defmethod make-instance ((class symbol) &rest initargs)
+  (apply #'make-instance (find-class class) initargs))
+
 ;;; change-class
+
+(defgeneric update-instance-for-different-class (old new &key))
+(defmethod update-instance-for-different-class 
+           ((old standard-object) (new standard-object) &rest initargs)
+  (let ((added-slots 
+          (remove-if #'(lambda (slot-name)
+                         (slot-exists-p old slot-name))
+                     (mapcar #'slot-definition-name
+                             (class-slots (class-of new))))))
+    (apply #'shared-initialize new added-slots initargs)))
 
 (defgeneric change-class (instance new-class &key))
 (defmethod change-class
@@ -104,16 +114,6 @@
 (defmethod change-class
            ((instance standard-object) (new-class symbol) &rest initargs)
   (apply #'change-class instance (find-class new-class) initargs))
-
-(defgeneric update-instance-for-different-class (old new &key))
-(defmethod update-instance-for-different-class 
-           ((old standard-object) (new standard-object) &rest initargs)
-  (let ((added-slots 
-          (remove-if #'(lambda (slot-name)
-                         (slot-exists-p old slot-name))
-                     (mapcar #'slot-definition-name
-                             (class-slots (class-of new))))))
-    (apply #'shared-initialize new added-slots initargs)))
 
 ;;;
 ;;;  Methods having to do with class metaobjects.
@@ -168,24 +168,6 @@
   (finalize-generic-function gf))
 
 ;;;
-;;; Methods having to do with method metaobjects.
-;;;
-
-(defmethod print-object ((method standard-method) stream)
-  (print-unreadable-object (method stream :identity t)
-     (format stream "~:(~S~) ~S~{ ~S~} ~S"
-                    (class-name (class-of method))
-                    (generic-function-name
-                      (method-generic-function method))
-                    (method-qualifiers method)
-                    (mapcar #'class-name 
-                            (method-specializers method))))
-  method)
-
-(defmethod initialize-instance :after ((method standard-method) &key)
-  (setf (method-function method) (compute-method-function method)))
-
-;;;
 ;;; Methods having to do with generic function invocation.
 ;;;
 
@@ -207,10 +189,29 @@
 (defmethod compute-method-function ((method standard-method))
   (std-compute-method-function method))
 
+;;;
+;;; Methods having to do with method metaobjects.
+;;;
+
+(defmethod print-object ((method standard-method) stream)
+  (print-unreadable-object (method stream :identity t)
+     (format stream "~:(~S~) ~S~{ ~S~} ~S"
+                    (class-name (class-of method))
+                    (generic-function-name
+                      (method-generic-function method))
+                    (method-qualifiers method)
+                    (mapcar #'class-name 
+                            (method-specializers method))))
+  method)
+
+(defmethod initialize-instance :after ((method standard-method) &key)
+  (setf (method-function method) (compute-method-function method)))
+
 ;;; describe-object is a handy tool for enquiring minds:
 
 (defgeneric describe-object (object stream))
 (defmethod describe-object ((object standard-object) stream)
+  ;(declare (ignore stream))
   (format t "A Closette object~
              ~%Printed representation: ~S~
              ~%Class: ~S~
@@ -226,6 +227,7 @@
                  (slot-value object sn))))
   (values))
 (defmethod describe-object ((object t) stream)
+  ;(declare (ignore stream))
   (common-lisp:describe object)
   (values))
 
