@@ -260,12 +260,12 @@
 (defun mop-canonicalize-direct-superclasses (direct-superclasses)
   `(list ,@(mapcar #'mop-canonicalize-direct-superclass direct-superclasses)))
 
-(defun mop-canonicalize-direct-superclass (class-name)
-  `(find-class ',class-name))
+(defun mop-canonicalize-direct-superclass (mop-class-name)
+  `(mop-find-class ',class-name))
 
 (defun mop-canonicalize-defclass-option (option)
   (case (car option)
-    (:metaclass (list ':metaclass `(find-class ',(cadr option))))
+    (:metaclass (list ':metaclass `(mop-find-class ',(cadr option))))
     (:default-initargs (list ':direct-default-initargs
                              `(list ,@(mop-mapappend #'(lambda (x) x)
                                                   (mop-mapplist #'(lambda (key value)
@@ -277,7 +277,7 @@
   (mop-mapappend #'mop-canonicalize-defclass-option options))
 
 ; Stub
-(defun mop-make-instance (class-name &rest all-keys)
+(defun mop-make-instance (mop-class-name &rest all-keys)
   (list class-name all-keys))
 
 (let ((mop-class-table (make-hash-table :test #'eq)))
@@ -324,8 +324,8 @@
     (setf (mop-class-direct-superclasses class) supers)
     (dolist (superclass supers)
       (push class (mop-class-direct-subclasses superclass))))
-  (let ((slots (mapcar #'(lambda (slot-properties)
-                           (apply #'mop-make-direct-slot-definition slot-properties))
+  (let ((slots (mapcar #'(lambda (mop-slot-properties)
+                           (apply #'mop-make-direct-slot-definition mop-slot-properties))
                            direct-slots)))
     (setf (mop-class-direct-slots class) slots)
     (dolist (direct-slot slots)
@@ -493,7 +493,7 @@
      :allocation (mop-slot-definition-allocation (car direct-slots)))))
 
 (defparameter mop-the-defclass-standard-generic-function
-  `(defclass mop-standard-generic-function ()
+  `(mop-defclass mop-standard-generic-function ()
      ((name :initarg :name)
       (lambda-list :initarg :lambda-list)
       (methods :initform ())
@@ -534,7 +534,7 @@
   (setf (mop-slot-value gf 'classes-to-emf-table) new-value))
 
 (defparameter mop-the-defclass-standard-method
-  '(defclass mop-standard-method ()
+  '(mop-defclass mop-standard-method ()
      ((lambda-list :initarg :lambda-list)
       (qualifiers :initarg :qualifiers)
       (specializers :initarg :specializers)
@@ -583,8 +583,8 @@
 
 (defun mop-canonicalize-defgeneric-option (option)
   (case (car option)
-    (:generic-function-class (list ':generic-function-class `(find-class ',(cadr option))))
-    (:method-class (list ':method-class `(find-class ',(cadr option))))
+    (:generic-function-class (list ':generic-function-class `(mop-find-class ',(cadr option))))
+    (:method-class (list ':method-class `(mop-find-class ',(cadr option))))
     (otherwise (list `',(car option) `',(cadr option)))))
 
 (let ((mop-generic-function-table (make-hash-table :test #'equal)))
@@ -658,7 +658,7 @@
   `(list ,@(mapcar #'mop-canonicalize-specializer specializers)))
 
 (defun mop-canonicalize-specializer (specializer)
-  `(find-class ',specializer))
+  `(mop-find-class ',specializer))
 
 (defun mop-parse-defmethod (args)
   (let ((fn-spec (car args))
@@ -955,7 +955,297 @@
 ; Bootstrap
 ;-------------------------------------------------------------------------------
 
+(format t "Beginning to bootstrap Closette...")
+(mop-forget-all-classes)
+(mop-forget-all-generic-functions)
+;; How to create the class hierarchy in 10 easy steps:
+;; 1. Figure out mop-standard-class's slots.
+(setq the-slots-of-standard-class
+      (mapcar #'(lambda (slotd)
+                  (mop-make-effective-slot-definition
+                    :name (car slotd)
+                    :initargs (let ((a (getf (cdr slotd) ':initarg)))
+                                (if a (list a) ()))
+                    :initform (getf (cdr slotd) ':initform)
+                    :initfunction (let ((a (getf (cdr slotd) ':initform)))
+                                    (if a #'(lambda () (eval a)) nil))
+                    :allocation ':instance))
+              (nth 3 mop-the-defclass-standard-class)))
+;; 2. Create the mop-standard-class metaobject by hand.
+(setq mop-the-class-standard-class
+      (mop-allocate-std-instance
+         'tba
+         (make-array (length mop-the-slots-of-standard-class) :initial-element mop-secret-unbound-value)))
+;; 3. Install mop-standard-class's (circular) class-of link. 
+(setf (mop-std-instance-class mop-the-class-standard-class) mop-the-class-standard-class)
+;; (It's now okay to use class-... accessor).
+;; 4. Fill in mop-standard-class's class-slots.
+(setf (mop-class-slots mop-the-class-standard-class) mop-the-slots-of-standard-class)
+;; (Skeleton built; it's now okay to call make-instance-standard-class.)
+;; 5. Hand build the class t so that it has no direct superclasses.
+(setf (mop-find-class 't) 
+  (let ((class (mop-std-allocate-instance mop-the-class-standard-class)))
+    (setf (mop-class-name class) 't)
+    (setf (mop-class-direct-subclasses class) ())
+    (setf (mop-class-direct-superclasses class) ())
+    (setf (mop-class-direct-methods class) ())
+    (setf (mop-class-direct-slots class) ())
+    (setf (mop-class-precedence-list class) (list class))
+    (setf (mop-class-slots class) ())
+    class))
+;; (It's now okay to define subclasses of t.)
+;; 6. Create the other superclass of mop-standard-class (i.e., mop-standard-object).
+(mop-defclass mop-standard-object (t) ())
+;; 7. Define the full-blown version of mop-standard-class.
+(setq mop-the-class-standard-class (eval mop-the-defclass-standard-class))
+;; 8. Replace all (3) existing pointers to the skeleton with real one.
+(setf (mop-std-instance-class (mop-find-class 't)) mop-the-class-standard-class)
+(setf (mop-std-instance-class (mop-find-class 'mop-standard-object)) mop-the-class-standard-class)
+(setf (mop-std-instance-class mop-the-class-standard-class) mop-the-class-standard-class)
+;; (Clear sailing from here on in).
+;; 9. Define the other built-in classes.
+(mop-defclass mop-symbol (t) ())
+(mop-defclass mop-sequence (t) ())
+(mop-defclass mop-array (t) ())
+(mop-defclass mop-number (t) ())
+(mop-defclass mop-character (t) ())
+(mop-defclass mop-function (t) ())
+(mop-defclass mop-hash-table (t) ())
+(mop-defclass mop-package (t) ())
+(mop-defclass mop-pathname (t) ())
+(mop-defclass mop-readtable (t) ())
+(mop-defclass mop-stream (t) ())
+(mop-defclass mop-list (sequence) ())
+(mop-defclass mop-null (symbol list) ())
+(mop-defclass mop-cons (list) ())
+(mop-defclass mop-vector (array sequence) ())
+(mop-defclass mop-bit-vector (vector) ())
+(mop-defclass mop-string (vector) ())
+(mop-defclass mop-complex (number) ())
+(mop-defclass mop-integer (number) ())
+(mop-defclass mop-float (number) ())
+;; 10. Define the other standard metaobject classes.
+(setq mop-the-class-standard-gf (eval mop-the-defclass-standard-generic-function))
+(setq mop-the-class-standard-method (eval mop-the-defclass-standard-method))
+;; Voila! The class hierarchy is in place.
+(format t "Class hierarchy created.")
+;; (It's now okay to define generic functions and methods.)
 
+;-------------------------------------------------------------------------------
+; After bootstrap...
+;-------------------------------------------------------------------------------
+
+(mop-defgeneric mop-print-object (instance stream))
+(mop-defmethod mop-print-object ((instance mop-standard-object) stream)
+  (mop-print-unreadable-object (instance stream :identity t)
+                               (format stream "~:(~S~)" (mop-class-name (mop-class-of instance))))
+  instance)
+
+;;; Slot access
+
+(mop-defgeneric mop-slot-value-using-class (class instance slot-name))
+(mop-defmethod mop-slot-value-using-class ((class mop-standard-class) instance slot-name)
+  (mop-std-slot-value instance slot-name))
+
+(mop-defgeneric (setf mop-slot-value-using-class) (new-value class instance slot-name))
+(mop-defmethod (setf mop-slot-value-using-class) (new-value (class mop-standard-class) instance slot-name)
+  (setf (mop-std-slot-value instance slot-name) new-value))
+;;; N.B. To avoid making a forward reference to a (setf xxx) generic function:
+(defun setf-slot-value-using-class (new-value class object slot-name)
+  (setf (mop-slot-value-using-class class object slot-name) new-value))
+
+(mop-defgeneric mop-slot-exists-p-using-class (class instance slot-name))
+(mop-defmethod mop-slot-exists-p-using-class ((class mop-standard-class) instance slot-name)
+  (mop-std-slot-exists-p instance slot-name))
+
+(mop-defgeneric mop-slot-boundp-using-class (class instance slot-name))
+(mop-defmethod mop-slot-boundp-using-class ((class mop-standard-class) instance slot-name)
+  (mop-std-slot-boundp instance slot-name))
+
+(mop-defgeneric mop-slot-makunbound-using-class (class instance slot-name))
+(mop-defmethod mop-slot-makunbound-using-class ((class mop-standard-class) instance slot-name)
+  (mop-std-slot-makunbound instance slot-name))
+
+;;; Instance creation and initialization
+
+(mop-defgeneric mop-allocate-instance (class))
+(mop-defmethod mop-allocate-instance ((class mop-standard-class))
+  (mop-std-allocate-instance class))
+
+(mop-defgeneric mop-make-instance (class &key))
+(mop-defmethod mop-make-instance ((class mop-standard-class) &rest initargs)
+  (let ((instance (mop-allocate-instance class)))
+    (apply #'mop-initialize-instance instance initargs)
+    instance))
+(mop-defmethod mop-make-instance ((class mop-symbol) &rest initargs)
+  (apply #'make-instance (mop-find-class class) initargs))
+
+(mop-defgeneric mop-initialize-instance (instance &key))
+(mop-defmethod mop-initialize-instance ((instance mop-standard-object) &rest initargs)
+  (apply #'mop-shared-initialize instance t initargs))
+
+(mop-defgeneric mop-reinitialize-instance (instance &key))
+(mop-defmethod mop-reinitialize-instance ((instance mop-standard-object) &rest initargs)
+  (apply #'mop-shared-initialize instance () initargs))
+
+(mop-defgeneric mop-shared-initialize (instance slot-names &key))
+(mop-defmethod mop-shared-initialize ((instance mop-standard-object) slot-names &rest all-keys)
+  (dolist (slot (mop-class-slots (mop-class-of instance)))
+    (let ((mop-slot-name (mop-slot-definition-name slot)))
+      (multiple-value-bind (init-key init-value foundp)
+            (get-properties all-keys (mop-slot-definition-initargs slot))
+         (declare (ignore init-key))
+         (if foundp
+             (setf (mop-slot-value instance slot-name) init-value)
+             (when (and (not (mop-slot-boundp instance slot-name))
+                        (not (null (mop-slot-definition-initfunction slot)))
+                        (or (eq slot-names t)
+                            (member slot-name slot-names)))
+               (setf (mop-slot-value instance slot-name)
+                     (funcall (mop-slot-definition-initfunction slot))))))))
+  instance)
+
+;;; change-class
+
+(mop-defgeneric change-class (instance new-class &key))
+(mop-defmethod change-class ((old-instance mop-standard-object)
+                             (new-class mop-standard-class)
+                             &rest initargs)
+  (let ((new-instance (mop-allocate-instance new-class)))
+    (dolist (mop-slot-name (mapcar #'mop-slot-definition-name (mop-class-slots new-class)))
+      (when (and (mop-slot-exists-p old-instance slot-name)
+                 (mop-slot-boundp old-instance slot-name))
+        (setf (mop-slot-value new-instance slot-name) 
+              (mop-slot-value old-instance slot-name))))
+    (rotatef (mop-std-instance-slots new-instance) 
+             (mop-std-instance-slots old-instance))
+    (rotatef (mop-std-instance-class new-instance) 
+             (mop-std-instance-class old-instance))
+    (apply #'mop-update-instance-for-different-class new-instance old-instance initargs)
+    old-instance))
+
+(mop-defmethod change-class ((instance mop-standard-object) (new-class mop-symbol) &rest initargs)
+  (apply #'mop-change-class instance (mop-find-class new-class) initargs))
+
+(mop-defgeneric update-instance-for-different-class (old new &key))
+(mop-defmethod update-instance-for-different-class  ((old mop-standard-object) (new mop-standard-object) &rest initargs)
+  (let ((added-slots 
+          (remove-if #'(lambda (slot-name)
+                         (mop-slot-exists-p old slot-name))
+                     (mapcar #'mop-slot-definition-name
+                             (mop-class-slots (mop-class-of new))))))
+    (apply #'mop-shared-initialize new added-slots initargs)))
+
+;;;
+;;;  Methods having to do with class metaobjects.
+;;;
+
+(mop-defmethod mop-print-object ((class mop-standard-class) stream)
+  (mop-print-unreadable-object (class stream :identity t)
+    (format stream "~:(~S~) ~S"
+            (mop-class-name (mop-class-of class))
+            (mop-class-name class)))
+  class)
+
+(mop-defmethod mop-initialize-instance :after ((class mop-standard-class) &rest args)
+  (apply #'mop-std-after-initialization-for-classes class args))
+
+;;; Finalize inheritance
+
+(mop-defgeneric mop-finalize-inheritance (class))
+(mop-defmethod mop-finalize-inheritance ((class mop-standard-class)) 
+  (mop-std-finalize-inheritance class)
+  (values))
+
+;;; Class precedence lists
+
+(mop-defgeneric mop-compute-class-precedence-list (class))
+(mop-defmethod mop-compute-class-precedence-list ((class mop-standard-class))
+  (mop-std-compute-class-precedence-list class))
+
+;;; Slot inheritance
+
+(mop-defgeneric mop-compute-slots (class))
+(mop-defmethod mop-compute-slots ((class mop-standard-class)) 
+  (mop-std-compute-slots class))
+
+(mop-defgeneric mop-compute-effective-slot-definition (class direct-slots))
+(mop-defmethod mop-compute-effective-slot-definition ((class mop-standard-class) direct-slots)
+  (mop-std-compute-effective-slot-definition class direct-slots))
+
+;;;
+;;; Methods having to do with generic function metaobjects.
+;;;
+
+(mop-defmethod mop-print-object ((gf mop-standard-generic-function) stream)
+  (mop-print-unreadable-object (gf stream :identity t)
+     (format stream "~:(~S~) ~S"
+             (mop-class-name (mop-class-of gf)) 
+             (mop-generic-function-name gf)))
+  gf)
+
+(mop-defmethod mop-initialize-instance :after ((gf mop-standard-generic-function) &key)
+  (mop-finalize-generic-function gf))
+
+;;;
+;;; Methods having to do with method metaobjects.
+;;;
+
+(mop-defmethod mop-print-object ((method mop-standard-method) stream)
+  (mop-print-unreadable-object (method stream :identity t)
+     (format stream "~:(~S~) ~S~{ ~S~} ~S"
+                    (mop-class-name (mop-class-of method))
+                    (mop-generic-function-name (mop-method-generic-function method))
+                    (mop-method-qualifiers method)
+                    (mapcar #'mop-class-name (mop-method-specializers method))))
+  method)
+
+(mop-defmethod mop-initialize-instance :after ((method mop-standard-method) &key)
+  (setf (mop-method-function method) (mop-compute-method-function method)))
+
+;;;
+;;; Methods having to do with generic function invocation.
+;;;
+
+(mop-defgeneric mop-compute-discriminating-function (gf))
+(mop-defmethod mop-compute-discriminating-function ((gf mop-standard-generic-function))
+  (mop-std-compute-discriminating-function gf))
+
+(mop-defgeneric mop-method-more-specific-p (gf method1 method2 required-classes))
+(mop-defmethod mop-method-more-specific-p ((gf mop-standard-generic-function) method1 method2 required-classes)
+  (mop-std-method-more-specific-p gf method1 method2 required-classes))
+
+(mop-defgeneric mop-compute-effective-method-function (gf methods))
+(mop-defmethod mop-compute-effective-method-function ((gf mop-standard-generic-function) methods)
+  (mop-std-compute-effective-method-function gf methods))
+
+(mop-defgeneric mop-compute-method-function (method))
+(mop-defmethod mop-compute-method-function ((method mop-standard-method))
+  (mop-std-compute-method-function method))
+
+;;; describe-object is a handy tool for enquiring minds:
+
+(mop-defgeneric mop-describe-object (object stream))
+(mop-defmethod mop-describe-object ((object mop-standard-object) stream)
+  (format t "A Closette object~
+             ~%Printed representation: ~S~
+             ~%Class: ~S~
+             ~%Structure "
+          object 
+          (mop-class-of object))
+  (dolist (sn (mapcar #'mop-slot-definition-name
+                      (mop-class-slots (mop-class-of object))))
+    (format t "~%    ~S <- ~:[not bound~;~S~]"
+            sn 
+            (mop-slot-boundp object sn)
+            (and (mop-slot-boundp object sn)
+                 (mop-slot-value object sn))))
+  (values))
+(mop-defmethod mop-describe-object ((object t) stream)
+  (describe object)
+  (values))
+
+(format t "~%Closette is a Knights of the Lambda Calculus production.")
 
 ;-------------------------------------------------------------------------------
 ; Definitions
