@@ -9,63 +9,82 @@
 (in-package :closette)
 
 ; ------------------------------------------------------------------------------
-; Scratch...
+; Expand standard-class with publish/subscribe mechanism.
 ; ------------------------------------------------------------------------------
 
-(defclass pub/sub-class (standard-class)
-  ((pub/sub-table :initform (make-hash-table :test #'eq))))
+(defvar pub/sub-table (make-hash-table :test #'eq))
 
-(defun slot-definition-attributes (slot)
-  (getf slot ':attributes ()))
-(defun (setf slot-definition-attributes) (new-value slot)
-  (setf (getf* slot ':attributes) new-value))
+(defclass pub/sub-class (standard-class) ())
 
-(defun slot-attribute-bucket (instance slot-name attribute)
-  (let* ((all-buckets (slot-value instance 'all-attributes))
-         (slot-bucket (assoc slot-name all-buckets)))
-    (unless slot-bucket
-      (error "The slot named ~A of ~S has no attributes."
-             slot-name instance))
-    (let ((attr-bucket (assoc attribute (cdr slot-bucket))))
-      (unless attr-bucket
-        (error "The slot named ~A of ~S has no attribute~@
-                named ~A." slot-name instance attribute))
-      attr-bucket)))
+(defun slot-definition-publish (slot)
+  (getf slot ':publish nil))
+(defun (setf slot-definition-publish) (new-value slot)
+  (setf (getf* slot ':publish) new-value))
 
-(defun slot-attribute (instance slot-name attribute)
-  (cdr (slot-attribute-bucket instance slot-name attribute)))
-
-(defun (setf slot-attribute) (new-value instance slot-name attribute)
-  (setf (cdr (slot-attribute-bucket
-               instance slot-name attribute))
-        new-value))
-
-(defmethod compute-slots ((class pub/sub-class))
-  (let* ((normal-slots (call-next-method))
-         (alist (mapcar #'(lambda (slot)
-                            (cons (slot-definition-name slot)
-                                  (mapcar #'(lambda (attr) (cons attr nil))
-                                          (slot-definition-attributes slot))))
-                        normal-slots)))
-    (cons (make-effective-slot-definition
-           :name 'all-attributes
-           :initform `',alist
-           :initfunction #'(lambda () alist))
-          normal-slots)))
+(defun slot-definition-subscribe (slot)
+  (getf slot ':subscribe nil))
+(defun (setf slot-definition-subscribe) (new-value slot)
+  (setf (getf* slot ':subscribe) new-value))
 
 (defmethod compute-effective-slot-definition ((class pub/sub-class)
-                                              name
                                               direct-slots)
   (let ((normal-slot (call-next-method)))
-    (setf (slot-definition-attributes normal-slot)
-          (remove-duplicates
-           (mapappend #'slot-definition-attributes direct-slots)))
+    (setf (slot-definition-publish normal-slot) nil)
+    (setf (slot-definition-subscribe normal-slot) nil)
     normal-slot))
 
-(defclass zany ()
-  ((bar :attributes (subscribe)))
+(defmethod initialize-instance :after ((instance pub/sub-class) &rest initargs)
+  (let ((slots (class-slots instance))
+        (direct-slots (sixth initargs)))
+    (do ((remaining-slots slots (cdr remaining-slots)))
+        ((null remaining-slots))
+      (let* ((slot (car remaining-slots))
+             (slot-initargs (find-if (lambda (args)
+                                       (equal (slot-definition-name slot) (getf args ':name)))
+                                     direct-slots)))
+        (setf (slot-definition-publish slot) (getf slot-initargs ':publish nil))
+        (setf (slot-definition-subscribe slot) (getf slot-initargs ':subscribe nil))
+        (when (slot-definition-subscribe slot)
+          (let ((subscribers (gethash (slot-definition-name slot) pub/sub-table (list))))
+            (unless (assoc instance subscribers)
+              (setf (gethash (slot-definition-name slot) pub/sub-table)
+                    (cons (cons instance (slot-definition-subscribe slot)) subscribers)))))))))
+
+(defmethod (setf slot-value-using-class) :after (new-value (class pub/sub-class) instance slot-name)
+  (let ((slots (class-slots class)))
+    (when (slot-definition-publish (find-if (lambda (slot)
+                                              (equal (slot-definition-name slot) slot-name))
+                                            slots))
+      (print slot-name)
+      (print "SHOULD BE PUBLISHED")))) ; TODO
+
+; ------------------------------------------------------------------------------
+; Example...
+; ------------------------------------------------------------------------------
+
+(defclass ps1 ()
+  ((@foo :reader @foo :initform 100 :subscribe 'queue))
   (:metaclass pub/sub-class))
 
-(defclass credit-rating2 ()
-  ((level :attributes (date-set time-set)))
+(defclass ps2 ()
+  ((@bar :reader @bar :initform 200 :subscribe 'sample))
   (:metaclass pub/sub-class))
+
+(defclass ps3 ()
+  ((@baz :reader @baz :initform 300 :publish t))
+  (:metaclass pub/sub-class))
+
+(defclass ps4 ()
+  ((@zip :reader @zip :initform 400))
+  (:metaclass pub/sub-class))
+
+(defvar i1 (make-instance 'ps1))
+(defvar i2 (make-instance 'ps2))
+(defvar i3 (make-instance 'ps3))
+(defvar i4 (make-instance 'ps4))
+
+; Print the pub/sub-table.
+(maphash #'(lambda (key value)
+             (print key)
+             (print value))
+         pub/sub-table)

@@ -94,3 +94,15 @@
 
 ;(print (slot-value foo1 'pub/sub-table))
 ;(print (slot-value foo2 'pub/sub-table))
+
+;(defmethod compute-slots ((class pub/sub-class))
+;  (let ((normal-slots (call-next-method)))
+;    (cons (make-effective-slot-definition
+;           :name 'publish
+;           :initform nil
+;           :initfunction #'(lambda () nil))
+;          (cons (make-effective-slot-definition
+;                 :name 'subscribe
+;                 :initform nil
+;                 :initfunction #'(lambda () nil))
+;                normal-slots))))
