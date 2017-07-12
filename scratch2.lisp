@@ -34,8 +34,10 @@
     normal-slot))
 
 (defmethod initialize-instance :after ((instance pub/sub-class) &rest initargs)
-  (let ((slots (class-slots instance))
-        (direct-slots (sixth initargs)))
+  (let* ((slots (class-slots (instance)))
+         (direct-slots (sixth initargs)))
+    ;(print slots)
+    ;(print direct-slots)
     (do ((remaining-slots slots (cdr remaining-slots)))
         ((null remaining-slots))
       (let* ((slot (car remaining-slots))
@@ -48,30 +50,38 @@
           (let ((subscribers (gethash (slot-definition-name slot) pub/sub-table (list))))
             (unless (assoc instance subscribers)
               (setf (gethash (slot-definition-name slot) pub/sub-table)
-                    (cons (cons instance (slot-definition-subscribe slot)) subscribers)))))))))
+                    (cons (cons instance (slot-definition-subscribe slot)) subscribers)))))))
+    instance))
 
 (defmethod (setf slot-value-using-class) :after (new-value (class pub/sub-class) instance slot-name)
-  (let ((slots (class-slots class)))
-    (when (slot-definition-publish (find-if (lambda (slot)
-                                              (equal (slot-definition-name slot) slot-name))
-                                            slots))
-      (print slot-name)
-      (print "SHOULD BE PUBLISHED")))) ; TODO
+  (let ((publish? (slot-definition-publish
+                   (find-if (lambda (slot)
+                              (equal (slot-definition-name slot) slot-name))
+                            (class-slots class)))))
+    (when publish?
+      (do ((subscribers (gethash slot-name pub/sub-table nil) (cdr subscribers)))
+          ((null subscribers))
+        (print subscribers)
+        (let* ((sub (caar subscribers))
+               (current-slot-value (slot-value sub slot-name)))
+          (if (listp current-slot-value)
+              (push-on-end new-value current-slot-value)
+              (setf (slot-value sub slot-name) new-value)))))))
 
 ; ------------------------------------------------------------------------------
 ; Example...
 ; ------------------------------------------------------------------------------
 
 (defclass ps1 ()
-  ((@foo :reader @foo :initform 100 :subscribe 'queue))
+  ((@foo :reader @foo :initform (list 100) :subscribe 'queue))
   (:metaclass pub/sub-class))
 
 (defclass ps2 ()
-  ((@bar :reader @bar :initform 200 :subscribe 'sample))
+  ((@foo :reader @foo :initform 200 :subscribe 'sample))
   (:metaclass pub/sub-class))
 
 (defclass ps3 ()
-  ((@baz :reader @baz :initform 300 :publish t))
+  ((@foo :reader @foo :initform 300 :publish t))
   (:metaclass pub/sub-class))
 
 (defclass ps4 ()
@@ -88,3 +98,11 @@
              (print key)
              (print value))
          pub/sub-table)
+
+;(setf (slot-value i3 '@foo) 111)
+;(setf (slot-value i3 '@foo) 222)
+;(setf (slot-value i3 '@foo) 333)
+
+;(print (slot-value i1 '@foo))
+;(print (slot-value i2 '@foo))
+;(print (slot-value i3 '@foo))
