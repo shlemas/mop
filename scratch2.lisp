@@ -13,6 +13,8 @@
 ; ------------------------------------------------------------------------------
 
 (defvar pub/sub-table (make-hash-table :test #'eq))
+(defvar class-object-table (make-hash-table :test #'eq))
+(defvar should-publish? t)
 
 (defclass pub/sub-class (standard-class) ())
 
@@ -34,39 +36,49 @@
     normal-slot))
 
 (defmethod initialize-instance :after ((instance pub/sub-class) &rest initargs)
-  (let* ((slots (class-slots (instance)))
+  (print "initialize-instance :after")
+  (let* ((slots (class-slots instance))
          (direct-slots (sixth initargs)))
-    ;(print slots)
-    ;(print direct-slots)
     (do ((remaining-slots slots (cdr remaining-slots)))
         ((null remaining-slots))
       (let* ((slot (car remaining-slots))
+             (slot-name (slot-definition-name slot))
              (slot-initargs (find-if (lambda (args)
-                                       (equal (slot-definition-name slot) (getf args ':name)))
+                                       (equal slot-name (getf args ':name)))
                                      direct-slots)))
         (setf (slot-definition-publish slot) (getf slot-initargs ':publish nil))
         (setf (slot-definition-subscribe slot) (getf slot-initargs ':subscribe nil))
         (when (slot-definition-subscribe slot)
-          (let ((subscribers (gethash (slot-definition-name slot) pub/sub-table (list))))
+          (let ((subscribers (gethash slot-name pub/sub-table (list))))
             (unless (assoc instance subscribers)
-              (setf (gethash (slot-definition-name slot) pub/sub-table)
-                    (cons (cons instance (slot-definition-subscribe slot)) subscribers)))))))
+              (setf (gethash slot-name pub/sub-table)
+                    (cons (cons instance (slot-definition-subscribe slot)) subscribers))))))))
+  instance)
+
+(defmethod make-instance ((class pub/sub-class) &rest initargs)
+  (print "make-instance")
+  (setf should-publish? nil)
+  (let ((instance (call-next-method))
+        (objects (gethash class class-object-table (list))))
+    (setf (gethash class class-object-table) (cons instance objects))
+    (setf should-publish? t)
     instance))
 
 (defmethod (setf slot-value-using-class) :after (new-value (class pub/sub-class) instance slot-name)
-  (let ((publish? (slot-definition-publish
-                   (find-if (lambda (slot)
-                              (equal (slot-definition-name slot) slot-name))
-                            (class-slots class)))))
-    (when publish?
-      (do ((subscribers (gethash slot-name pub/sub-table nil) (cdr subscribers)))
-          ((null subscribers))
-        (print subscribers)
-        (let* ((sub (caar subscribers))
-               (current-slot-value (slot-value sub slot-name)))
-          (if (listp current-slot-value)
-              (push-on-end new-value current-slot-value)
-              (setf (slot-value sub slot-name) new-value)))))))
+  (print "setf :after")
+  (when should-publish?
+    (setf should-publish? nil)
+    (let ((class-subscribers (gethash slot-name pub/sub-table (list))))
+      (do ((cs class-subscribers (cdr cs)))
+          ((null cs))
+        (let ((subscribers (gethash (caar cs) class-object-table (list))))
+          (do ((s subscribers (cdr s)))
+              ((null s))
+            (let ((current-slot-value (slot-value (car s) slot-name)))
+              (if (listp current-slot-value)
+                  (push-on-end new-value current-slot-value)
+                  (setf (slot-value (car s) slot-name) new-value)))))))
+    (setf should-publish? t)))
 
 ; ------------------------------------------------------------------------------
 ; Example...
@@ -94,15 +106,22 @@
 (defvar i4 (make-instance 'ps4))
 
 ; Print the pub/sub-table.
+(print "pub/sub-table")
 (maphash #'(lambda (key value)
              (print key)
              (print value))
          pub/sub-table)
 
-;(setf (slot-value i3 '@foo) 111)
-;(setf (slot-value i3 '@foo) 222)
-;(setf (slot-value i3 '@foo) 333)
+(print "class-object-table")
+(maphash #'(lambda (key value)
+             (print key)
+             (print value))
+         class-object-table)
 
-;(print (slot-value i1 '@foo))
-;(print (slot-value i2 '@foo))
-;(print (slot-value i3 '@foo))
+(setf (slot-value i3 '@foo) 111)
+(setf (slot-value i3 '@foo) 222)
+(setf (slot-value i3 '@foo) 333)
+
+(print (slot-value i1 '@foo))
+(print (slot-value i2 '@foo))
+(print (slot-value i3 '@foo))
