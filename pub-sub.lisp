@@ -52,7 +52,7 @@
           (let ((subscribers (gethash slot-name pub/sub-table (list))))
             (unless (assoc instance subscribers)
               (setf (gethash slot-name pub/sub-table)
-                    (cons (cons instance (slot-definition-subscribe slot)) subscribers))))))))
+                    (cons (list instance (slot-definition-subscribe slot)) subscribers))))))))
   instance)
 
 (defmethod make-instance ((class pub/sub-class) &rest initargs)
@@ -71,11 +71,12 @@
     (let ((class-subscribers (gethash slot-name pub/sub-table (list))))
       (do ((cs class-subscribers (cdr cs)))
           ((null cs))
-        (let ((subscribers (gethash (caar cs) class-object-table (list))))
+        (let ((subscribers (gethash (caar cs) class-object-table (list)))
+              (subscription-type (cadar cs)))
           (do ((s subscribers (cdr s)))
               ((null s))
             (let ((current-slot-value (slot-value (car s) slot-name)))
-              (if (listp current-slot-value)
+              (if (eq subscription-type 'queue)
                   (push-on-end new-value current-slot-value)
                   (setf (slot-value (car s) slot-name) new-value)))))))
     (setf should-publish? t)))
@@ -85,11 +86,11 @@
 ; ------------------------------------------------------------------------------
 
 (defclass ps1 ()
-  ((@foo :reader @foo :initform (list 100) :subscribe 'queue))
+  ((@foo :reader @foo :initform (list 100) :subscribe queue))
   (:metaclass pub/sub-class))
 
 (defclass ps2 ()
-  ((@foo :reader @foo :initform 200 :subscribe 'sample))
+  ((@foo :reader @foo :initform 200 :subscribe sample))
   (:metaclass pub/sub-class))
 
 (defclass ps3 ()
@@ -122,6 +123,7 @@
 (setf (slot-value i3 '@foo) 222)
 (setf (slot-value i3 '@foo) 333)
 
+(print "slot values")
 (print (slot-value i1 '@foo))
 (print (slot-value i2 '@foo))
 (print (slot-value i3 '@foo))
